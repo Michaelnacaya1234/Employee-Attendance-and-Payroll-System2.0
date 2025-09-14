@@ -999,6 +999,44 @@ function listReports($conn){
     $stmt->bindValue(':off', $offset, PDO::PARAM_INT);
     $stmt->execute();
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    
+    // Fallback for employee reports - show current employees if no reports exist
+    if ($total === 0) {
+      $sql2 = "SELECT 
+                NULL AS Report_ID,
+                e.employee_id AS Employee_ID,
+                d.dept_id AS Department_ID,
+                e.position AS Position,
+                e.basic_salary AS Basic_Salary,
+                e.status AS Status,
+                e.date_hired AS Date_Hired,
+                NULL AS Generated_By,
+                NULL AS Generated_At,
+                e.first_name,
+                e.last_name,
+                d.dept_name
+              FROM tblemployees e 
+              LEFT JOIN tbldepartments d ON d.dept_name = e.department 
+              WHERE 1=1";
+      $params2 = [];
+      if ($employee_id) { $sql2 .= " AND e.employee_id = :emp2"; $params2[':emp2'] = $employee_id; }
+      if ($department_id) { $sql2 .= " AND d.dept_id = :dept2"; $params2[':dept2'] = $department_id; }
+      if ($status) { $sql2 .= " AND e.status = :status2"; $params2[':status2'] = $status; }
+      if (!canSeeAll($me) && $me['employee_id']) { $sql2 .= " AND e.employee_id = :me_emp2"; $params2[':me_emp2'] = $me['employee_id']; }
+      $countSql2 = preg_replace('/SELECT.*FROM/i', 'SELECT COUNT(*) AS c FROM', $sql2, 1);
+      $c2 = $conn->prepare($countSql2);
+      foreach ($params2 as $k=>$v){ $c2->bindValue($k,$v); }
+      $c2->execute();
+      $total = (int)$c2->fetchColumn();
+      $sql2 .= " ORDER BY e.employee_id DESC LIMIT :lim2 OFFSET :off2";
+      $stmt2 = $conn->prepare($sql2);
+      foreach ($params2 as $k=>$v){ $stmt2->bindValue($k,$v); }
+      $stmt2->bindValue(':lim2', $limit, PDO::PARAM_INT);
+      $stmt2->bindValue(':off2', $offset, PDO::PARAM_INT);
+      $stmt2->execute();
+      $rows = $stmt2->fetchAll(PDO::FETCH_ASSOC);
+    }
+    
     return json_encode(['items'=>$rows,'total'=>$total,'page'=>$page,'limit'=>$limit]);
   }
   if ($type === 'department'){
