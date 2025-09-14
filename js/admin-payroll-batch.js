@@ -288,22 +288,51 @@
             <td class="px-3 py-2 text-sm"><span class="inline-flex items-center px-2 py-0.5 rounded border ${statusClass}">${status}</span></td>
             <td class="px-3 py-2 text-sm text-gray-700">${peso(r.total_amount)}</td>
             <td class="px-3 py-2 text-sm text-right">
-              <div class="inline-flex gap-2">
-                <button class="px-2 py-1 text-xs rounded border" data-action="view" data-id="${r.batch_id}">View</button>
+              <div class="relative inline-flex justify-center" data-batch-menu-container>
+                <button class="inline-flex items-center justify-center w-8 h-8 rounded hover:bg-gray-100" aria-label="Actions" data-action="menu-toggle">
+                  <span class="text-gray-600 font-bold text-lg">•••</span>
+                </button>
+                <div class="hidden origin-top-right absolute right-0 mt-2 w-36 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 z-10" role="menu" data-menu>
+                  <div class="py-1">
+                    <button class="w-full text-left px-3 py-2 text-sm hover:bg-gray-50" data-menu-action="view" data-id="${r.batch_id}" role="menuitem">View</button>
+                  </div>
+                </div>
               </div>
             </td>
           </tr>`;
       }).join('');
-      // Wire view buttons
+      // Wire 3-dots action menus
       try {
-        tbody.querySelectorAll('button[data-action="view"]').forEach(btn => {
-          btn.addEventListener('click', async () => {
-            const id = parseInt(btn.getAttribute('data-id'), 10);
+        // Close any open menus before opening a new one
+        const closeAllMenus = () => {
+          document.querySelectorAll('[data-batch-menu-container] [data-menu]').forEach(m => m.classList.add('hidden'));
+        };
+        tbody.querySelectorAll('[data-batch-menu-container]').forEach(container => {
+          const toggleBtn = container.querySelector('[data-action="menu-toggle"]');
+          const menu = container.querySelector('[data-menu]');
+          if (toggleBtn && menu) {
+            toggleBtn.addEventListener('click', (ev) => {
+              ev.preventDefault(); ev.stopPropagation();
+              closeAllMenus();
+              menu.classList.toggle('hidden');
+            });
+          }
+          const viewBtn = container.querySelector('[data-menu-action="view"]');
+          if (viewBtn) viewBtn.addEventListener('click', async (ev) => {
+            ev.preventDefault();
+            if (menu) menu.classList.add('hidden');
+            const id = parseInt(viewBtn.getAttribute('data-id'), 10);
             if (!id) return;
             await openViewBatchModal(id);
           });
         });
-      } catch (e) { console.error('Wire view buttons failed', e); }
+        if (!window.__batchMenuGlobalClose) {
+          window.__batchMenuGlobalClose = true;
+          document.addEventListener('click', () => {
+            document.querySelectorAll('[data-batch-menu-container] [data-menu]').forEach(m => m.classList.add('hidden'));
+          });
+        }
+      } catch (e) { console.error('Wire batch action menus failed', e); }
     }
 
     if (pag) {
