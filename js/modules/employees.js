@@ -595,6 +595,7 @@ export async function render() {
             <div class="hidden origin-top-right absolute right-0 mt-2 w-36 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 z-10" role="menu" data-menu>
               <div class="py-1">
                 <button class="w-full text-left px-3 py-2 text-sm hover:bg-gray-50" data-menu-action="preview" role="menuitem">Preview</button>
+                <button class="w-full text-left px-3 py-2 text-sm hover:bg-gray-50" data-menu-action="dtr" role="menuitem">View DTR</button>
                 <button class="w-full text-left px-3 py-2 text-sm hover:bg-gray-50" data-menu-action="edit" role="menuitem">Edit</button>
                 <button class="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-gray-50" data-menu-action="delete" role="menuitem">Delete</button>
               </div>
@@ -614,6 +615,7 @@ export async function render() {
         });
 
         const onPreview = tr.querySelector('[data-menu-action="preview"]');
+        const onDTR = tr.querySelector('[data-menu-action="dtr"]');
         const onEdit = tr.querySelector('[data-menu-action="edit"]');
         const onDelete = tr.querySelector('[data-menu-action="delete"]');
         if (isManagerPortal()) {
@@ -624,6 +626,11 @@ export async function render() {
           ev.preventDefault();
           menu.classList.add('hidden');
           await openPreview(e.employee_id);
+        });
+        if (onDTR) onDTR.addEventListener('click', async (ev) => {
+          ev.preventDefault();
+          menu.classList.add('hidden');
+          await openDTR(e.employee_id, fullName);
         });
         if (onEdit) onEdit.addEventListener('click', async (ev) => {
           ev.preventDefault();
@@ -745,6 +752,411 @@ export async function render() {
       </div>`;
     document.body.appendChild(modal);
     modal.querySelectorAll('[data-close="true"]').forEach(el => el.addEventListener('click', () => modal.classList.add('hidden')));
+  }
+
+  // Add DTR modal function
+  function ensureDTRModal(){
+    if (document.getElementById('employeeDTRModal')) return;
+    const modal = document.createElement('div');
+    modal.id = 'employeeDTRModal';
+    modal.className = 'fixed inset-0 z-50 hidden';
+    modal.innerHTML = `
+      <div class="absolute inset-0 bg-black/50" data-close="true"></div>
+      <div class="relative mx-auto mt-10 w-full max-w-6xl">
+        <div class="bg-white rounded-lg shadow">
+          <div class="flex items-center justify-between border-b px-4 py-3">
+            <h5 class="font-semibold">Daily Time Record (DTR)</h5>
+            <button class="text-gray-500 hover:text-gray-700 text-xl leading-none" data-close="true">×</button>
+          </div>
+          <div id="empDTRBody" class="p-4 text-sm text-gray-700 max-h-[70vh] overflow-y-auto">
+            <div class="flex items-center justify-between mb-4">
+              <div>
+                <h3 id="dtrEmployeeName" class="text-lg font-semibold"></h3>
+                <p id="dtrEmployeeId" class="text-gray-600"></p>
+              </div>
+              <div class="flex items-center gap-2">
+                <input type="month" id="dtrMonthSelector" class="border rounded px-2 py-1 text-sm">
+                <div class="flex rounded border overflow-hidden">
+                  <button id="dtrDailyViewBtn" class="px-3 py-1 text-sm bg-primary-600 text-white">Daily</button>
+                  <button id="dtrMonthlyViewBtn" class="px-3 py-1 text-sm bg-white text-gray-700 hover:bg-gray-50">Monthly</button>
+                </div>
+                <button id="dtrRefreshBtn" class="px-3 py-1 text-sm rounded bg-primary-600 text-white hover:bg-primary-700">Refresh</button>
+              </div>
+            </div>
+            <div id="dtrDailyView" class="overflow-x-auto">
+              <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                  <tr>
+                    <th class="px-3 py-2 text-left text-xs font-semibold text-gray-600">Date</th>
+                    <th class="px-3 py-2 text-left text-xs font-semibold text-gray-600">Day</th>
+                    <th class="px-3 py-2 text-left text-xs font-semibold text-gray-600">Time In</th>
+                    <th class="px-3 py-2 text-left text-xs font-semibold text-gray-600">Time Out</th>
+                    <th class="px-3 py-2 text-left text-xs font-semibold text-gray-600">Hours Worked</th>
+                    <th class="px-3 py-2 text-left text-xs font-semibold text-gray-600">Status</th>
+                    <th class="px-3 py-2 text-left text-xs font-semibold text-gray-600">Remarks</th>
+                  </tr>
+                </thead>
+                <tbody id="dtrTableBody" class="divide-y divide-gray-200 bg-white">
+                  <tr>
+                    <td colspan="7" class="px-3 py-4 text-center text-gray-500">Loading DTR records...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div id="dtrMonthlyView" class="hidden">
+              <div id="dtrCalendarView" class="grid grid-cols-7 gap-1 mb-4"></div>
+              <div class="flex flex-wrap gap-2 justify-center">
+                <div class="flex items-center gap-1">
+                  <div class="w-3 h-3 bg-green-500 rounded"></div>
+                  <span class="text-xs">Present</span>
+                </div>
+                <div class="flex items-center gap-1">
+                  <div class="w-3 h-3 bg-red-500 rounded"></div>
+                  <span class="text-xs">Absent</span>
+                </div>
+                <div class="flex items-center gap-1">
+                  <div class="w-3 h-3 bg-yellow-500 rounded"></div>
+                  <span class="text-xs">Late</span>
+                </div>
+                <div class="flex items-center gap-1">
+                  <div class="w-3 h-3 bg-blue-500 rounded"></div>
+                  <span class="text-xs">Leave</span>
+                </div>
+                <div class="flex items-center gap-1">
+                  <div class="w-3 h-3 bg-purple-500 rounded"></div>
+                  <span class="text-xs">Undertime</span>
+                </div>
+                <div class="flex items-center gap-1">
+                  <div class="w-3 h-3 bg-gray-300 rounded"></div>
+                  <span class="text-xs">No Record</span>
+                </div>
+              </div>
+            </div>
+            <div class="mt-4 p-3 bg-gray-50 rounded">
+              <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                <div>
+                  <div class="text-gray-500">Total Days</div>
+                  <div id="dtrTotalDays" class="font-semibold">0</div>
+                </div>
+                <div>
+                  <div class="text-gray-500">Present</div>
+                  <div id="dtrTotalPresent" class="font-semibold text-green-700">0</div>
+                </div>
+                <div>
+                  <div class="text-gray-500">Absent</div>
+                  <div id="dtrTotalAbsent" class="font-semibold text-red-700">0</div>
+                </div>
+                <div>
+                  <div class="text-gray-500">Total Hours</div>
+                  <div id="dtrTotalHours" class="font-semibold">0</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="flex justify-end gap-2 border-t px-4 py-3">
+            <button class="px-3 py-2 text-sm rounded border" data-close="true">Close</button>
+          </div>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+    modal.querySelectorAll('[data-close="true"]').forEach(el => el.addEventListener('click', () => modal.classList.add('hidden')));
+    
+    // Add event listeners
+    const refreshBtn = document.getElementById('dtrRefreshBtn');
+    if (refreshBtn) {
+      refreshBtn.addEventListener('click', () => {
+        const employeeId = document.getElementById('dtrEmployeeId').getAttribute('data-employee-id');
+        const selectedMonth = document.getElementById('dtrMonthSelector').value;
+        if (employeeId && selectedMonth) {
+          loadDTRData(employeeId, selectedMonth);
+        }
+      });
+    }
+    
+    // View toggle buttons
+    const dailyViewBtn = document.getElementById('dtrDailyViewBtn');
+    const monthlyViewBtn = document.getElementById('dtrMonthlyViewBtn');
+    if (dailyViewBtn && monthlyViewBtn) {
+      dailyViewBtn.addEventListener('click', () => {
+        document.getElementById('dtrDailyView').classList.remove('hidden');
+        document.getElementById('dtrMonthlyView').classList.add('hidden');
+        dailyViewBtn.classList.add('bg-primary-600', 'text-white');
+        dailyViewBtn.classList.remove('bg-white', 'text-gray-700', 'hover:bg-gray-50');
+        monthlyViewBtn.classList.remove('bg-primary-600', 'text-white');
+        monthlyViewBtn.classList.add('bg-white', 'text-gray-700', 'hover:bg-gray-50');
+      });
+      
+      monthlyViewBtn.addEventListener('click', () => {
+        document.getElementById('dtrDailyView').classList.add('hidden');
+        document.getElementById('dtrMonthlyView').classList.remove('hidden');
+        monthlyViewBtn.classList.add('bg-primary-600', 'text-white');
+        monthlyViewBtn.classList.remove('bg-white', 'text-gray-700', 'hover:bg-gray-50');
+        dailyViewBtn.classList.remove('bg-primary-600', 'text-white');
+        dailyViewBtn.classList.add('bg-white', 'text-gray-700', 'hover:bg-gray-50');
+      });
+    }
+  }
+
+  async function openDTR(employeeId, employeeName){
+    ensureDTRModal();
+    const modal = document.getElementById('employeeDTRModal');
+    const body = document.getElementById('empDTRBody');
+    const nameEl = document.getElementById('dtrEmployeeName');
+    const idEl = document.getElementById('dtrEmployeeId');
+    const monthSelector = document.getElementById('dtrMonthSelector');
+    
+    if (!modal || !body || !nameEl || !idEl) return;
+    
+    // Set employee info
+    nameEl.textContent = employeeName;
+    idEl.textContent = `ID: ${formatEmployeeCode(employeeId)}`;
+    idEl.setAttribute('data-employee-id', employeeId);
+    
+    // Set current month as default
+    const now = new Date();
+    const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    if (monthSelector) monthSelector.value = currentMonth;
+    
+    // Load DTR data
+    await loadDTRData(employeeId, currentMonth);
+    
+    modal.classList.remove('hidden');
+  }
+
+  // Helper function to calculate hours worked
+  function calculateHoursWorked(timeIn, timeOut) {
+    if (!timeIn || !timeOut) return '0.00';
+    
+    try {
+      const [inHours, inMinutes] = timeIn.split(':').map(Number);
+      const [outHours, outMinutes] = timeOut.split(':').map(Number);
+      
+      const inTime = inHours * 60 + inMinutes;
+      const outTime = outHours * 60 + outMinutes;
+      
+      // Handle overnight shifts
+      const minutesWorked = outTime >= inTime ? outTime - inTime : (24 * 60 - inTime) + outTime;
+      const hoursWorked = minutesWorked / 60;
+      
+      return hoursWorked.toFixed(2);
+    } catch (e) {
+      return '0.00';
+    }
+  }
+
+  // Helper function to get status color
+  function getStatusColor(status) {
+    switch (status) {
+      case 'present': return 'bg-green-500';
+      case 'absent': return 'bg-red-500';
+      case 'late': return 'bg-yellow-500';
+      case 'leave': return 'bg-blue-500';
+      case 'undertime': return 'bg-purple-500';
+      default: return 'bg-gray-300';
+    }
+  }
+
+  async function loadDTRData(employeeId, selectedMonth){
+    const tableBody = document.getElementById('dtrTableBody');
+    const calendarView = document.getElementById('dtrCalendarView');
+    const totalDaysEl = document.getElementById('dtrTotalDays');
+    const totalPresentEl = document.getElementById('dtrTotalPresent');
+    const totalAbsentEl = document.getElementById('dtrTotalAbsent');
+    const totalHoursEl = document.getElementById('dtrTotalHours');
+    
+    if (!tableBody || !calendarView) return;
+    
+    try {
+      // Show loading state
+      tableBody.innerHTML = '<tr><td colspan="7" class="px-3 py-4 text-center text-gray-500">Loading DTR records...</td></tr>';
+      calendarView.innerHTML = '<div class="col-span-7 text-center py-4 text-gray-500">Loading calendar view...</div>';
+      
+      // Parse the selected month
+      const [year, month] = selectedMonth.split('-');
+      const startDate = `${year}-${month}-01`;
+      const endDate = new Date(year, month, 0).toISOString().split('T')[0]; // Last day of month
+      
+      // Fetch attendance data for the selected month
+      const res = await axios.get(`${window.baseApiUrl}/attendance.php`, {
+        params: {
+          operation: 'getAttendance',
+          start_date: startDate,
+          end_date: endDate
+        }
+      });
+      
+      const attendanceData = res.data || [];
+      
+      // Filter data for the specific employee
+      const employeeAttendance = attendanceData.filter(record => 
+        String(record.employee_id) === String(employeeId)
+      );
+      
+      // Create a map for quick lookup
+      const attendanceMap = {};
+      employeeAttendance.forEach(record => {
+        attendanceMap[record.attendance_date] = record;
+      });
+      
+      // Generate all days of the month
+      const daysInMonth = new Date(year, month, 0).getDate();
+      const dtrRecords = [];
+      let totalPresent = 0;
+      let totalAbsent = 0;
+      let totalHours = 0;
+      
+      for (let day = 1; day <= daysInMonth; day++) {
+        const dateStr = `${year}-${month}-${String(day).padStart(2, '0')}`;
+        const dayOfWeek = new Date(dateStr).toLocaleDateString('en-US', { weekday: 'long' });
+        const shortDay = new Date(dateStr).toLocaleDateString('en-US', { weekday: 'short' });
+        
+        // Find attendance record for this date
+        const record = attendanceMap[dateStr];
+        
+        let timeIn = '';
+        let timeOut = '';
+        let hoursWorked = '0.00';
+        let status = 'No Record';
+        let remarks = '';
+        
+        if (record) {
+          timeIn = record.time_in || '';
+          timeOut = record.time_out || '';
+          status = record.status || 'No Record';
+          remarks = record.remarks || '';
+          
+          if (status === 'present' || status === 'late' || status === 'undertime') {
+            totalPresent++;
+            hoursWorked = calculateHoursWorked(timeIn, timeOut);
+            totalHours += parseFloat(hoursWorked);
+          } else if (status === 'absent' || status === 'leave') {
+            totalAbsent++;
+          }
+        }
+        
+        dtrRecords.push({
+          date: dateStr,
+          day: shortDay,
+          dayName: dayOfWeek,
+          time_in: timeIn,
+          time_out: timeOut,
+          hours_worked: hoursWorked,
+          status: status,
+          remarks: remarks
+        });
+      }
+      
+      // Update summary
+      if (totalDaysEl) totalDaysEl.textContent = daysInMonth;
+      if (totalPresentEl) totalPresentEl.textContent = totalPresent;
+      if (totalAbsentEl) totalAbsentEl.textContent = totalAbsent;
+      if (totalHoursEl) totalHoursEl.textContent = totalHours.toFixed(2);
+      
+      // Render the daily table view
+      if (dtrRecords.length > 0) {
+        tableBody.innerHTML = dtrRecords.map(record => `
+          <tr class="${record.status === 'No Record' ? 'bg-gray-50' : ''}">
+            <td class="px-3 py-2 text-sm text-gray-700">${record.date}</td>
+            <td class="px-3 py-2 text-sm text-gray-700">${record.day}</td>
+            <td class="px-3 py-2 text-sm text-gray-700">${record.time_in || '-'}</td>
+            <td class="px-3 py-2 text-sm text-gray-700">${record.time_out || '-'}</td>
+            <td class="px-3 py-2 text-sm text-gray-700">${record.hours_worked}</td>
+            <td class="px-3 py-2 text-sm">
+              <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                record.status === 'present' ? 'bg-green-100 text-green-800' :
+                record.status === 'absent' ? 'bg-red-100 text-red-800' :
+                record.status === 'late' ? 'bg-yellow-100 text-yellow-800' :
+                record.status === 'leave' ? 'bg-blue-100 text-blue-800' :
+                record.status === 'undertime' ? 'bg-purple-100 text-purple-800' :
+                'bg-gray-100 text-gray-800'
+              }">
+                ${record.status}
+              </span>
+            </td>
+            <td class="px-3 py-2 text-sm text-gray-700">${record.remarks || '-'}</td>
+          </tr>
+        `).join('');
+      } else {
+        tableBody.innerHTML = '<tr><td colspan="7" class="px-3 py-4 text-center text-gray-500">No DTR records found for this month.</td></tr>';
+      }
+      
+      // Render the monthly calendar view
+      renderCalendarView(year, month, attendanceMap);
+      
+    } catch (error) {
+      console.error('Error loading DTR data:', error);
+      tableBody.innerHTML = '<tr><td colspan="7" class="px-3 py-4 text-center text-red-600">Failed to load DTR records.</td></tr>';
+      if (calendarView) {
+        calendarView.innerHTML = '<div class="col-span-7 text-center py-4 text-red-600">Failed to load calendar view.</div>';
+      }
+    }
+  }
+
+  function renderCalendarView(year, month, attendanceMap) {
+    const calendarView = document.getElementById('dtrCalendarView');
+    if (!calendarView) return;
+    
+    // Clear previous content
+    calendarView.innerHTML = '';
+    
+    // Add day headers
+    const dayHeaders = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    dayHeaders.forEach(day => {
+      const header = document.createElement('div');
+      header.className = 'text-center font-semibold text-gray-700 py-2';
+      header.textContent = day;
+      calendarView.appendChild(header);
+    });
+    
+    // Get first day of month and number of days
+    const firstDay = new Date(year, month - 1, 1).getDay(); // 0 = Sunday
+    const daysInMonth = new Date(year, month, 0).getDate();
+    
+    // Add empty cells for days before the first day of the month
+    for (let i = 0; i < firstDay; i++) {
+      const emptyCell = document.createElement('div');
+      calendarView.appendChild(emptyCell);
+    }
+    
+    // Add cells for each day of the month
+    for (let day = 1; day <= daysInMonth; day++) {
+      const dateStr = `${year}-${month.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`;
+      const record = attendanceMap[dateStr];
+      
+      const dayCell = document.createElement('div');
+      dayCell.className = 'border rounded p-2 min-h-20';
+      
+      // Day number
+      const dayNumber = document.createElement('div');
+      dayNumber.className = 'text-sm font-semibold';
+      dayNumber.textContent = day;
+      dayCell.appendChild(dayNumber);
+      
+      // Status indicator
+      if (record) {
+        const statusIndicator = document.createElement('div');
+        statusIndicator.className = `w-3 h-3 rounded-full mt-1 ${getStatusColor(record.status)}`;
+        statusIndicator.title = record.status;
+        dayCell.appendChild(statusIndicator);
+        
+        // Hours worked if available
+        if (record.time_in && record.time_out) {
+          const hours = calculateHoursWorked(record.time_in, record.time_out);
+          const hoursText = document.createElement('div');
+          hoursText.className = 'text-xs mt-1';
+          hoursText.textContent = `${hours}h`;
+          dayCell.appendChild(hoursText);
+        }
+      } else {
+        // No record indicator
+        const noRecord = document.createElement('div');
+        noRecord.className = 'w-3 h-3 rounded-full mt-1 bg-gray-300';
+        noRecord.title = 'No Record';
+        dayCell.appendChild(noRecord);
+      }
+      
+      calendarView.appendChild(dayCell);
+    }
   }
 
   async function openPreview(employeeId){
